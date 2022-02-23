@@ -2,10 +2,10 @@ const Rembrandt = require('rembrandt')
 const Jimp = require('jimp')
 
 class CaptchaSolver {
+  frame
   page
   options
   startImage
-
   constructor(page) {
     this.page = page
 
@@ -26,7 +26,7 @@ class CaptchaSolver {
 
   get selectors() {
     return {
-      verifyElement: '[id$="verify-ele"], #login_slide',
+      verifyElement: '#login_slide',
       verifyContainer: '.captcha_verify_container',
 
       puzzleImageWrapper: '.captcha_verify_img--wrapper',
@@ -68,8 +68,8 @@ class CaptchaSolver {
       this.selectors
     )
 
-    const sliderElement = await this.page.$(this.selectors.sliderElement)
-    const sliderHandle = await this.page.$(this.selectors.sliderHandle)
+    const sliderElement = await this.page.$(this.selectors.sliderElement) || await this.frame.$(this.selectors.sliderElement)
+    const sliderHandle = await this.page.$(this.selectors.sliderHandle) || await this.frame.$(this.selectors.sliderHandle)
     const slider = await sliderElement.boundingBox()
     const handle = await sliderHandle.boundingBox()
 
@@ -99,6 +99,8 @@ class CaptchaSolver {
       )
 
       const sliderContainer = await this.page.$(
+        this.selectors.puzzleImageWrapper
+      ) || await this.frame.$(
         this.selectors.puzzleImageWrapper
       )
 
@@ -187,15 +189,21 @@ class CaptchaSolver {
 
   async _watchForCaptchaAdd() {
     try {
-      await this.page.waitForSelector(this.selectors.verifyElement, {
-        timeout: 5000,
-      })
-      await this.page.evaluate(this._waitForCaptchaDomAdd, this.selectors)
+
+      const elementHandle = await this.page.waitForSelector(".tiktok-tpndsz-IframeLoginSite", { timeout: 25000 });
+      const frame = await elementHandle.contentFrame();
+      this.frame = frame;
+      await frame.waitForSelector(this.selectors.verifyElement, { timeout: 25000 });
+      await frame.evaluate(this._waitForCaptchaDomAdd, this.selectors)
       const waitForCaptchaElements = this.captchaElements.map((el) =>
-        this.page.waitForSelector(el, { state: 'attached' })
+        frame.waitForSelector(el, { state: 'attached' })
       )
+      console.log("ojoij")
+
+
       return await Promise.all(waitForCaptchaElements)
     } catch (e) {
+      console.log("mmmmnmnms")
       return Promise.reject(new Error('Failed to find verify element'))
     }
   }
@@ -261,14 +269,25 @@ class CaptchaSolver {
   }
 
   _syncOverlayPositionWithPuzzlePiece({ puzzlePiece, puzzlePieceOverlay }) {
-    const puzzlePieceEl = document.querySelector(puzzlePiece)
-    const overlayEl = document.querySelector(puzzlePieceOverlay)
+    const elementHandle = document.querySelector(".tiktok-tpndsz-IframeLoginSite");
+    const frame = elementHandle.contentWindow;
+
+    const puzzlePieceEl = document.querySelector(puzzlePiece) || frame.document.querySelector(puzzlePiece)
+    const overlayEl = document.querySelector(puzzlePieceOverlay) || frame.document.querySelector(puzzlePieceOverlay)
     overlayEl.style.left = puzzlePieceEl.style.left
   }
 
   _removeOverlayAndShowPuzzlePiece({ puzzlePieceOverlay, puzzlePiece }) {
-    document.querySelector(puzzlePieceOverlay).remove()
-    document.querySelector(puzzlePiece).style.display = 'block'
+    const elementHandle = document.querySelector(".tiktok-tpndsz-IframeLoginSite");
+    const frame = elementHandle.contentWindow;
+    if (frame) {
+      frame.document.querySelector(puzzlePieceOverlay).remove()
+      frame.document.querySelector(puzzlePiece).style.display = 'block'
+    }
+    else {
+      document.querySelector(puzzlePieceOverlay).remove()
+      document.querySelector(puzzlePiece).style.display = 'block'
+    }
   }
 
   validCaptchaUrl(url) {
@@ -305,22 +324,42 @@ class CaptchaSolver {
     puzzlePieceOverlay,
     puzzleImageWrapper,
   }) {
-    const puzzlePieceEl = document.querySelector(puzzlePiece)
-    const div = document.createElement('div')
-    div.id = puzzlePieceOverlay.slice(1)
+    const elementHandle = document.querySelector(".tiktok-tpndsz-IframeLoginSite");
+    const frame = elementHandle.contentWindow;
+    if (frame) {
+      const puzzlePieceEl = frame.document.querySelector(puzzlePiece);
+      const div = frame.document.createElement('div');
+      div.id = puzzlePieceOverlay.slice(1);
+      const topPosition = Number(puzzlePieceEl.style.top.split('em')[0])
+      Object.assign(div.style, {
+        position: 'absolute',
+        top: `${topPosition + 0.05}em`,
+        left: puzzlePieceEl.style.left,
+        width: '0.617536em',
+        height: '0.617536em',
+        backgroundColor: 'magenta',
+      })
 
-    const topPosition = Number(puzzlePieceEl.style.top.split('em')[0])
-    Object.assign(div.style, {
-      position: 'absolute',
-      top: `${topPosition + 0.05}em`,
-      left: puzzlePieceEl.style.left,
-      width: '0.617536em',
-      height: '0.617536em',
-      backgroundColor: 'magenta',
-    })
+      puzzlePieceEl.style.display = 'none'
+      frame.document.querySelector(puzzleImageWrapper).appendChild(div);
+    } else {
+      const puzzlePieceEl = document.querySelector(puzzlePiece);
+      const div = document.createElement('div')
+      div.id = puzzlePieceOverlay.slice(1)
 
-    puzzlePieceEl.style.display = 'none'
-    document.querySelector(puzzleImageWrapper).appendChild(div)
+      const topPosition = Number(puzzlePieceEl.style.top.split('em')[0])
+      Object.assign(div.style, {
+        position: 'absolute',
+        top: `${topPosition + 0.05}em`,
+        left: puzzlePieceEl.style.left,
+        width: '0.617536em',
+        height: '0.617536em',
+        backgroundColor: 'magenta',
+      })
+
+      puzzlePieceEl.style.display = 'none'
+      document.querySelector(puzzleImageWrapper).appendChild(div)
+    }
   }
 
   get isPlaywright() {
